@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "77629806728",
+    "project_id": "woody-s-burger",
+    "storage_bucket": "woody-s-burger.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:77629806728:android:6c10d2013b285dbf62e73d",
+        "android_client_info": {
+          "package_name": "com.woodys.woodysburger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "77629806728-4mss3kdidie05g9fue46vuq67qnrjtq9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfgg-3aKCrQQtsVTtTYFg8UYZESNWuXqA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "77629806728-4mss3kdidie05g9fue46vuq67qnrjtq9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

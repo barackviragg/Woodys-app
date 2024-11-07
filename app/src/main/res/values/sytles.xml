@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base application theme -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Set custom font family -->
+        <item name="android:fontFamily">@font/unisansheavy</item>
+        <!-- Optional: You can also define other properties like text color here -->
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+
+</resources>
