@@ -1,129 +1,103 @@
 package com.woodys.woodysburger
 
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.mlkit.vision.barcode.Barcode
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
+import okhttp3.*
+import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class ScanActivity : AppCompatActivity() {
 
+    private val client = OkHttpClient()
     private lateinit var cameraExecutor: ExecutorService
-    private lateinit var webView: WebView
-    private lateinit var userId: String
-    private val firestore = FirebaseFirestore.getInstance()
-    private var isScanning = true
+    private val cameraPermissionRequestCode = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scan)
-
-        // Enable WebView debugging
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(true)
-        }
-
-        webView = findViewById(R.id.webView)
-        setupWebView()
-
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser == null) {
-            startActivity(Intent(this, LoginActivity::class.java))
-            finish()
-            return
-        }
-
-        userId = currentUser.uid
-        requestCameraPermission()
         cameraExecutor = Executors.newSingleThreadExecutor()
-        startCamera()
+
+        // Check if the camera permission is granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED) {
+            startCamera() // Start the camera preview and analysis
+        } else {
+            // Request camera permission if not granted
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                cameraPermissionRequestCode
+            )
+        }
     }
 
-    private fun requestCameraPermission() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-                if (isGranted) {
-                    startCamera()
-                } else {
-                    Log.e("ScanActivity", "Camera permission not granted")
-                }
-            }.launch(Manifest.permission.CAMERA)
-        } else {
-            startCamera()
+    // Handle the result of permission request
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == cameraPermissionRequestCode) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera() // Start camera if permission is granted
+            } else {
+                Toast.makeText(this, "Camera permission is required to scan QR codes", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener(Runnable {
+        cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(findViewById<PreviewView>(R.id.preview_view).surfaceProvider)
+                it.setSurfaceProvider(findViewById<PreviewView>(R.id.viewFinder).surfaceProvider)
             }
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(android.util.Size(1280, 720))
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            val imageAnalyzer = ImageAnalysis.Builder()
                 .build()
                 .also {
-                    it.setAnalyzer(cameraExecutor, ImageAnalysis.Analyzer { imageProxy ->
+                    it.setAnalyzer(cameraExecutor) { imageProxy ->
                         processImageProxy(imageProxy)
-                    })
+                    }
                 }
 
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
             } catch (exc: Exception) {
                 Log.e("ScanActivity", "Use case binding failed", exc)
             }
         }, ContextCompat.getMainExecutor(this))
     }
 
-    @OptIn(ExperimentalGetImage::class)
     private fun processImageProxy(imageProxy: ImageProxy) {
-        if (!isScanning) {
-            imageProxy.close()
-            return
-        }
-
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
             val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-            val options = BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-            val scanner = BarcodeScanning.getClient(options)
+            val scanner = BarcodeScanning.getClient()
             scanner.process(inputImage)
                 .addOnSuccessListener { barcodes ->
                     for (barcode in barcodes) {
                         val rawValue = barcode.rawValue ?: ""
                         handleScanResult(rawValue)
-                        isScanning = false
-                        break
                     }
                 }
                 .addOnFailureListener { e ->
@@ -132,91 +106,121 @@ class ScanActivity : AppCompatActivity() {
                 .addOnCompleteListener {
                     imageProxy.close()
                 }
-        } else {
-            imageProxy.close()
         }
     }
 
-    private fun handleScanResult(code: String) {
-        Log.d("ScanActivity", "QR Code Scanned: $code")
-        if (isValidUrl(code)) {
-            webView.visibility = WebView.VISIBLE
-            webView.loadUrl(code)
+    private fun extractLastEightCharacters(url: String): String {
+        return if (url.length >= 8) url.takeLast(8) else ""
+    }
+
+    private fun handleScanResult(rawValue: String) {
+        Log.d("ScanActivity", "QR Code Scanned: $rawValue")
+
+        val lastEight = extractLastEightCharacters(rawValue)
+        if (lastEight.isNotEmpty()) {
+            checkCodeValidity(lastEight) // Check if the extracted last 8 characters are valid
         } else {
-            Log.e("ScanActivity", "Invalid QR Code URL: $code")
-            isScanning = true // Allow new scans after an invalid scan
+            Toast.makeText(this, "Invalid QR code", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun setupWebView() {
-        webView.settings.javaScriptEnabled = true
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, url: String) {
-                view.postDelayed({
-                    view.evaluateJavascript(
-                        "(function() { " +
-                                "var totalAmountElement = document.querySelector('#root > div > div.w-\\[100vw\\].h-\\[100vh\\].overflow-hidden.flex.flex-col > div.grow.overflow-hidden.flex.flex-col > div > div > div:nth-child(6) > p');" +
-                                "var totalAmount = totalAmountElement ? totalAmountElement.innerText : '0';" +
-                                "totalAmount;" +
-                                "})()"
-                    ) { totalAmount ->
-                        // Extract numeric value from the returned string
-                        processTotalAmount(totalAmount.replace("\"", "").replace(" Ft", "").trim())
+    private fun checkCodeValidity(code: String) {
+        val url = "https://api.woodysburger.hu/api/codes/$code" // API URL with the scanned code
+
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("ScanActivity", "Request failed: $e")
+                runOnUiThread {
+                    Toast.makeText(this@ScanActivity, "Failed to validate code", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val responseData = response.body?.string() ?: ""
+                    try {
+                        val jsonResponse = JSONObject(responseData)
+                        val scanned = jsonResponse.optInt("scanned", -1)
+
+                        if (scanned == 0) {
+                            // Code is valid and not scanned yet
+                            Log.d("ScanActivity", "Code is valid and not scanned yet")
+                            runOnUiThread {
+                                Toast.makeText(this@ScanActivity, "Code is valid", Toast.LENGTH_SHORT).show()
+                            }
+
+                            // Now, update the scanned status to 1 to mark it as used
+                            updateCodeAsScanned(code)
+                        } else {
+                            // Code has already been scanned
+                            Log.d("ScanActivity", "Code has already been scanned")
+                            runOnUiThread {
+                                Toast.makeText(this@ScanActivity, "Code has already been used", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ScanActivity", "Error parsing response: $e")
+                        runOnUiThread {
+                            Toast.makeText(this@ScanActivity, "Error processing response", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                }, 2000)
-            }
-        }
-    }
-
-    private fun processTotalAmount(amount: String) {
-        val spentAmount = amount.toIntOrNull() ?: 0
-        if (spentAmount > 0) {
-            awardPoints(spentAmount)
-        } else {
-            Log.e("ScanActivity", "Invalid amount: $amount")
-            isScanning = true
-        }
-    }
-
-    private fun awardPoints(spentAmount: Int) {
-        CoroutineScope(Dispatchers.Main).launch {
-            val points = spentAmount / 100
-            if (points > 0) {
-                updateUserPoints(userId, points)
-            } else {
-                Log.d("ScanActivity", "No points to award for spent amount: $spentAmount")
-                isScanning = true // Reset scanning state if no points are awarded
-            }
-        }
-    }
-
-    private fun updateUserPoints(userId: String, points: Int) {
-        val userRef = firestore.collection("users").document(userId)
-        userRef.get().addOnSuccessListener { document ->
-            val currentPoints = document.getLong("points") ?: 0
-            val updatedPoints = currentPoints + points
-            userRef.update("points", updatedPoints)
-                .addOnSuccessListener {
-                    Log.d("ScanActivity", "User points updated: $updatedPoints")
-                    finish()
+                } else {
+                    Log.e("ScanActivity", "Failed to validate code: ${response.message}")
+                    runOnUiThread {
+                        Toast.makeText(this@ScanActivity, "Failed to validate code", Toast.LENGTH_SHORT).show()
+                    }
                 }
-                .addOnFailureListener { e ->
-                    Log.e("ScanActivity", "Error updating user points: $e")
-                    isScanning = true
-                }
-        }.addOnFailureListener { e ->
-            Log.e("ScanActivity", "Error retrieving user document: $e")
-            isScanning = true
-        }
+            }
+        })
     }
 
-    private fun isValidUrl(url: String): Boolean {
-        return android.util.Patterns.WEB_URL.matcher(url).matches()
+    private fun updateCodeAsScanned(code: String) {
+        val url = "https://api.woodysburger.hu/api/codes/$code" // Correct API endpoint
+
+        // Create the request body with the scanned field set to 1
+        val requestBody = JSONObject().apply {
+            put("scanned", 1)
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .put(requestBody.toString().toRequestBody("application/json".toMediaTypeOrNull())) // Changed to PUT
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("ScanActivity", "Failed to update scanned status: $e")
+                runOnUiThread {
+                    Toast.makeText(this@ScanActivity, "Failed to update code status", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    Log.d("ScanActivity", "Code status updated to scanned")
+                    runOnUiThread {
+                        Toast.makeText(this@ScanActivity, "Code has been successfully updated", Toast.LENGTH_SHORT).show()
+                    }
+                    // Optionally, perform further actions, such as awarding points or saving data
+                } else {
+                    Log.e("ScanActivity", "Failed to update code status: ${response.message}")
+                    runOnUiThread {
+                        Toast.makeText(this@ScanActivity, "Failed to update code status", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
     }
+
+
 
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
-        webView.destroy()
     }
 }
