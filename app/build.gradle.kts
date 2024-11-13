@@ -91,6 +91,12 @@ dependencies {
     implementation ("org.jsoup:jsoup:1.15.3")
 
 
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.0")
+    implementation("com.squareup.okhttp3:okhttp:4.9.3")
+    implementation("org.json:json:20210307")
+
+
+
     implementation("com.google.mlkit:barcode-scanning:16.2.0")
     implementation("androidx.camera:camera-core:1.2.0")
     implementation("androidx.camera:camera-camera2:1.2.0")

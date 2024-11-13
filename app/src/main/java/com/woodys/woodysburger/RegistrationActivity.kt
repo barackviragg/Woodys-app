@@ -7,13 +7,23 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 class RegistrationActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_registration) // Create this layout
+        setContentView(R.layout.activity_registration)
 
         auth = FirebaseAuth.getInstance()
 
@@ -38,13 +48,51 @@ class RegistrationActivity : AppCompatActivity() {
         auth.createUserWithEmailAndPassword(email, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    // Send verification email if registration is successful
-                    auth.currentUser?.sendEmailVerification()
+                    val userId = auth.currentUser?.uid ?: ""
+                    sendUserDataToApi(userId, email)
+
                     Toast.makeText(this, "Registration successful! Please verify your email.", Toast.LENGTH_SHORT).show()
-                    finish() // Close the registration activity
+                    finish()
                 } else {
                     Toast.makeText(this, "Registration failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
                 }
             }
+    }
+
+    private fun sendUserDataToApi(userId: String, email: String) {
+        val client = OkHttpClient()
+
+        // JSON body
+        val jsonBody = JSONObject().apply {
+            put("userId", userId)
+            put("name", userId)
+            put("email", email)
+            put("points", 0)
+        }
+
+        val requestBody: RequestBody = jsonBody.toString()
+            .toRequestBody("application/json".toMediaTypeOrNull())
+
+        val request = Request.Builder()
+            .url("https://api.woodysburger.hu/api/users")
+            .post(requestBody)
+            .build()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = client.newCall(request).execute()
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@RegistrationActivity, "User data sent to API", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@RegistrationActivity, "Failed to send user data to API", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@RegistrationActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }

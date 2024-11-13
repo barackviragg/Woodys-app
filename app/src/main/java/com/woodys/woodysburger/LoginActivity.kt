@@ -2,9 +2,11 @@ package com.woodys.woodysburger
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -14,12 +16,23 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import org.json.JSONObject
+import java.io.IOException
 
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var auth: FirebaseAuth
     private lateinit var googleSignInClient: GoogleSignInClient
     private val RC_SIGN_IN = 9001
+
+    // Register the activity result launcher for Google Sign-In
+    private val googleSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val signInIntent = result.data
+        val task = GoogleSignIn.getSignedInAccountFromIntent(signInIntent)
+        handleSignInResult(task)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,7 +65,7 @@ class LoginActivity : AppCompatActivity() {
             if (task.isSuccessful) {
                 startMainMenu()
             } else {
-                Toast.makeText(this, "Login failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Login failed: ${task.exception?.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -64,16 +77,7 @@ class LoginActivity : AppCompatActivity() {
 
     private fun googleSignIn() {
         val signInIntent = googleSignInClient.signInIntent
-        startActivityForResult(signInIntent, RC_SIGN_IN)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == RC_SIGN_IN) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            handleSignInResult(task)
-        }
+        googleSignInLauncher.launch(signInIntent)
     }
 
     private fun handleSignInResult(completedTask: Task<GoogleSignInAccount>) {
@@ -81,7 +85,8 @@ class LoginActivity : AppCompatActivity() {
             val account = completedTask.getResult(ApiException::class.java)!!
             firebaseAuthWithGoogle(account.idToken!!)
         } catch (e: ApiException) {
-            Toast.makeText(this, "Google sign-in failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Google sign-in failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            Log.e("LoginActivity", "Google sign-in failed: ${e.localizedMessage}")
         }
     }
 
@@ -89,12 +94,60 @@ class LoginActivity : AppCompatActivity() {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         auth.signInWithCredential(credential).addOnCompleteListener { task ->
             if (task.isSuccessful) {
+                val user = auth.currentUser
+                user?.let {
+                    Log.d("LoginActivity", "User authenticated: ${it.uid}, ${it.email}")
+                    sendUserDataToApi(it.uid, it.email)
+                }
                 startMainMenu()
             } else {
-                Toast.makeText(this, "Authentication Failed: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Authentication Failed: ${task.exception?.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
+
+    private fun sendUserDataToApi(uid: String, email: String?) {
+        val client = OkHttpClient()
+        val json = JSONObject()
+
+        // Setting both 'name' and 'userId' to the uid
+        json.put("name", uid)   // Set the user's UID as the name
+        json.put("userId", uid) // Populate the userId field with the uid
+        json.put("email", email)
+        json.put("points", 0)    // Default points, can be adjusted as needed
+
+        val body = RequestBody.create(
+            "application/json; charset=utf-8".toMediaTypeOrNull(),
+            json.toString()
+        )
+
+        val request = Request.Builder()
+            .url("https://api.woodysburger.hu/api/users")
+            .post(body)
+            .addHeader("Content-Type", "application/json")
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@LoginActivity, "Failed to send user data", Toast.LENGTH_LONG).show()
+                }
+                Log.e("LoginActivity", "Error sending user data: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                runOnUiThread {
+                    if (response.isSuccessful) {
+                        Log.d("LoginActivity", "User data sent successfully: ${response.body?.string()}")
+                    } else {
+                        Toast.makeText(this@LoginActivity, "Error sending user data: ${response.message}", Toast.LENGTH_LONG).show()
+                        Log.e("LoginActivity", "Error sending user data: ${response.message}")
+                    }
+                }
+            }
+        })
+    }
+
 
     private fun startMainMenu() {
         val intent = Intent(this, MainMenuActivity::class.java)
