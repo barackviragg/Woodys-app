@@ -1,12 +1,12 @@
 package com.woodys.woodysburger
 
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
+import com.google.android.material.snackbar.Snackbar
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -16,10 +16,13 @@ import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+// Add this import
 
 class ScanActivity : AppCompatActivity() {
 
@@ -32,12 +35,10 @@ class ScanActivity : AppCompatActivity() {
         setContentView(R.layout.activity_scan)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Check if the camera permission is granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED) {
-            startCamera() // Start the camera preview and analysis
+            startCamera()
         } else {
-            // Request camera permission if not granted
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.CAMERA),
@@ -46,7 +47,6 @@ class ScanActivity : AppCompatActivity() {
         }
     }
 
-    // Handle the result of permission request
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -55,9 +55,13 @@ class ScanActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == cameraPermissionRequestCode) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startCamera() // Start camera if permission is granted
+                startCamera()
             } else {
-                Toast.makeText(this, "Camera permission is required to scan QR codes", Toast.LENGTH_SHORT).show()
+                Snackbar.make(
+                    findViewById(android.R.id.content),
+                    "Camera permission is required to scan QR codes",
+                    Snackbar.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -88,6 +92,7 @@ class ScanActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    @OptIn(ExperimentalGetImage::class)
     private fun processImageProxy(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
@@ -109,23 +114,21 @@ class ScanActivity : AppCompatActivity() {
         }
     }
 
-    private fun extractLastEightCharacters(url: String): String {
-        return if (url.length >= 8) url.takeLast(8) else ""
-    }
-
     private fun handleScanResult(rawValue: String) {
-        Log.d("ScanActivity", "QR Code Scanned: $rawValue")
-
         val lastEight = extractLastEightCharacters(rawValue)
         if (lastEight.isNotEmpty()) {
-            checkCodeValidity(lastEight) // Check if the extracted last 8 characters are valid
+            checkCodeValidity(lastEight)
         } else {
-            Toast.makeText(this, "Invalid QR code", Toast.LENGTH_SHORT).show()
+            Snackbar.make(
+                findViewById(android.R.id.content),
+                "Invalid QR code",
+                Snackbar.LENGTH_SHORT
+            ).show()
         }
     }
 
     private fun checkCodeValidity(code: String) {
-        val url = "https://api.woodysburger.hu/api/codes/$code" // API URL with the scanned code
+        val url = "https://api.woodysburger.hu/api/codes/$code"
 
         val request = Request.Builder()
             .url(url)
@@ -136,7 +139,11 @@ class ScanActivity : AppCompatActivity() {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("ScanActivity", "Request failed: $e")
                 runOnUiThread {
-                    Toast.makeText(this@ScanActivity, "Failed to validate code", Toast.LENGTH_SHORT).show()
+                    Snackbar.make(
+                        findViewById(android.R.id.content),
+                        "Failed to validate code",
+                        Snackbar.LENGTH_LONG
+                    ).show()
                 }
             }
 
@@ -148,31 +155,40 @@ class ScanActivity : AppCompatActivity() {
                         val scanned = jsonResponse.optInt("scanned", -1)
 
                         if (scanned == 0) {
-                            // Code is valid and not scanned yet
-                            Log.d("ScanActivity", "Code is valid and not scanned yet")
                             runOnUiThread {
-                                Toast.makeText(this@ScanActivity, "Code is valid", Toast.LENGTH_SHORT).show()
+                                Snackbar.make(
+                                    findViewById(android.R.id.content),
+                                    "Code is valid",
+                                    Snackbar.LENGTH_LONG
+                                ).show()
                             }
-
-                            // Now, update the scanned status to 1 to mark it as used
                             updateCodeAsScanned(code)
                         } else {
-                            // Code has already been scanned
-                            Log.d("ScanActivity", "Code has already been scanned")
                             runOnUiThread {
-                                Toast.makeText(this@ScanActivity, "Code has already been used", Toast.LENGTH_SHORT).show()
+                                Snackbar.make(
+                                    findViewById(android.R.id.content),
+                                    "Code has already been used",
+                                    Snackbar.LENGTH_LONG
+                                ).show()
                             }
                         }
                     } catch (e: Exception) {
                         Log.e("ScanActivity", "Error parsing response: $e")
                         runOnUiThread {
-                            Toast.makeText(this@ScanActivity, "Error processing response", Toast.LENGTH_SHORT).show()
+                            Snackbar.make(
+                                findViewById(android.R.id.content),
+                                "Error processing response",
+                                Snackbar.LENGTH_LONG
+                            ).show()
                         }
                     }
                 } else {
-                    Log.e("ScanActivity", "Failed to validate code: ${response.message}")
                     runOnUiThread {
-                        Toast.makeText(this@ScanActivity, "Failed to validate code", Toast.LENGTH_SHORT).show()
+                        Snackbar.make(
+                            findViewById(android.R.id.content),
+                            "Failed to validate code",
+                            Snackbar.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
@@ -180,47 +196,57 @@ class ScanActivity : AppCompatActivity() {
     }
 
     private fun updateCodeAsScanned(code: String) {
-        val url = "https://api.woodysburger.hu/api/codes/$code" // Correct API endpoint
-
-        // Create the request body with the scanned field set to 1
+        val url = "https://api.woodysburger.hu/api/codes/$code"
         val requestBody = JSONObject().apply {
             put("scanned", 1)
         }
 
         val request = Request.Builder()
             .url(url)
-            .put(requestBody.toString().toRequestBody("application/json".toMediaTypeOrNull())) // Changed to PUT
+            .put(requestBody.toString().toRequestBody("application/json".toMediaTypeOrNull()))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("ScanActivity", "Failed to update scanned status: $e")
                 runOnUiThread {
-                    Toast.makeText(this@ScanActivity, "Failed to update code status", Toast.LENGTH_SHORT).show()
+                    Snackbar.make(
+                        findViewById(android.R.id.content),
+                        "Failed to update code status",
+                        Snackbar.LENGTH_LONG
+                    ).show()
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
-                    Log.d("ScanActivity", "Code status updated to scanned")
                     runOnUiThread {
-                        Toast.makeText(this@ScanActivity, "Code has been successfully updated", Toast.LENGTH_SHORT).show()
+                        Snackbar.make(
+                            findViewById(android.R.id.content),
+                            "Code successfully updated",
+                            Snackbar.LENGTH_LONG
+                        ).show()
+                        finish() // Close ScanActivity after success
                     }
-                    // Optionally, perform further actions, such as awarding points or saving data
                 } else {
-                    Log.e("ScanActivity", "Failed to update code status: ${response.message}")
                     runOnUiThread {
-                        Toast.makeText(this@ScanActivity, "Failed to update code status", Toast.LENGTH_SHORT).show()
+                        Snackbar.make(
+                            findViewById(android.R.id.content),
+                            "Failed to update code status",
+                            Snackbar.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
         })
     }
 
-
-
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+    }
+
+    private fun extractLastEightCharacters(url: String): String {
+        return if (url.length >= 8) url.takeLast(8) else ""
     }
 }
